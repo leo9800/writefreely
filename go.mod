@@ -53,6 +53,8 @@ require (
 	golang.org/x/net v0.30.0
 )
 
+require github.com/lib/pq v1.10.9
+
 require (
 	code.as/core/socks v1.0.0 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect

@@ -367,7 +367,11 @@ func handleViewPost(app *App, w http.ResponseWriter, r *http.Request) error {
 		return impart.HTTPError{http.StatusFound, fmt.Sprintf("/%s%s", fixedID, ext)}
 	}
 
-	err := app.db.QueryRow("SELECT owner_id, collection_id, title, content, text_appearance, view_count, language, rtl FROM posts WHERE id = ?", friendlyID).Scan(&ownerID, &collectionID, &title, &content, &font, &views, &language, &rtl)
+	err := app.db.QueryRow(fmt.Sprintf(
+		"SELECT owner_id, collection_id, title, content, text_appearance, view_count, language, rtl FROM posts WHERE id = %s", 
+		app.db.PlaceHolder(1),
+	), friendlyID).Scan(&ownerID, &collectionID, &title, &content, &font, &views, &language, &rtl)
+
 	switch {
 	case err == sql.ErrNoRows:
 		found = false
@@ -529,7 +533,7 @@ func handleViewPost(app *App, w http.ResponseWriter, r *http.Request) error {
 		}
 		// Update stats for non-raw post views
 		if !isRaw && r.Method != "HEAD" && !bots.IsBot(r.UserAgent()) {
-			_, err := app.db.Exec("UPDATE posts SET view_count = view_count + 1 WHERE id = ?", friendlyID)
+			_, err := app.db.Exec(fmt.Sprintf("UPDATE posts SET view_count = view_count + 1 WHERE id = %s", app.db.PlaceHolder(1)), friendlyID)
 			if err != nil {
 				log.Error("Unable to update posts count: %v", err)
 			}
@@ -794,7 +798,7 @@ func existingPost(app *App, w http.ResponseWriter, r *http.Request) error {
 	}
 
 	if pRes.CollectionID.Valid {
-		coll, err := app.db.GetCollectionBy("id = ?", pRes.CollectionID.Int64)
+		coll, err := app.db.GetCollectionBy(fmt.Sprintf("id = %s", app.db.PlaceHolder(1)), pRes.CollectionID.Int64)
 		if err == nil && !app.cfg.App.Private && app.cfg.App.Federation {
 			coll.hostName = app.cfg.App.Host
 			pRes.Collection = &CollectionObj{Collection: *coll}
@@ -851,12 +855,12 @@ func deletePost(app *App, w http.ResponseWriter, r *http.Request) error {
 	if editToken != "" {
 		// TODO: SELECT owner_id, as well, and return appropriate error if NULL instead of running two queries
 		var dummy int64
-		err = app.db.QueryRow("SELECT 1 FROM posts WHERE id = ?", friendlyID).Scan(&dummy)
+		err = app.db.QueryRow(fmt.Sprintf("SELECT 1 FROM posts WHERE id = %s", app.db.PlaceHolder(1)), friendlyID).Scan(&dummy)
 		switch {
 		case err == sql.ErrNoRows:
 			return impart.HTTPError{http.StatusNotFound, "Post not found."}
 		}
-		err = app.db.QueryRow("SELECT 1 FROM posts WHERE id = ? AND owner_id IS NULL", friendlyID).Scan(&dummy)
+		err = app.db.QueryRow(fmt.Sprintf("SELECT 1 FROM posts WHERE id = %s AND owner_id IS NULL", app.db.PlaceHolder(1)), friendlyID).Scan(&dummy)
 		switch {
 		case err == sql.ErrNoRows:
 			// Post already has an owner. This could provide a bad experience
@@ -864,7 +868,11 @@ func deletePost(app *App, w http.ResponseWriter, r *http.Request) error {
 			// unexpectedly. So prevent deletion via token.
 			return impart.HTTPError{http.StatusConflict, "This post belongs to some user (hopefully yours). Please log in and delete it from that user's account."}
 		}
-		res, err = app.db.Exec("DELETE FROM posts WHERE id = ? AND modify_token = ? AND owner_id IS NULL", friendlyID, editToken)
+		res, err = app.db.Exec(fmt.Sprintf(
+			"DELETE FROM posts WHERE id = %s AND modify_token = %s AND owner_id IS NULL",
+			app.db.PlaceHolder(1),
+			app.db.PlaceHolder(2),
+		), friendlyID, editToken)
 	} else if accessToken != "" || u != nil {
 		// Caller provided some way to authenticate; assume caller expects the
 		// post to be deleted based on a specific post owner, thus we should
@@ -880,16 +888,20 @@ func deletePost(app *App, w http.ResponseWriter, r *http.Request) error {
 
 		// TODO: don't make two queries
 		var realOwnerID sql.NullInt64
-		err = app.db.QueryRow("SELECT collection_id, owner_id FROM posts WHERE id = ?", friendlyID).Scan(&collID, &realOwnerID)
+		err = app.db.QueryRow(fmt.Sprintf("SELECT collection_id, owner_id FROM posts WHERE id = %s", app.db.PlaceHolder(1)), friendlyID).Scan(&collID, &realOwnerID)
 		if err != nil {
 			return err
 		}
 		if !collID.Valid {
 			// There's no collection; simply delete the post
-			res, err = app.db.Exec("DELETE FROM posts WHERE id = ? AND owner_id = ?", friendlyID, ownerID)
+			res, err = app.db.Exec(fmt.Sprintf(
+				"DELETE FROM posts WHERE id = %s AND owner_id = %s",
+				app.db.PlaceHolder(1),
+				app.db.PlaceHolder(2),
+			), friendlyID, ownerID)
 		} else {
 			// Post belongs to a collection; do any additional clean up
-			coll, err = app.db.GetCollectionBy("id = ?", collID.Int64)
+			coll, err = app.db.GetCollectionBy(fmt.Sprintf("id = %s", app.db.PlaceHolder(1)), collID.Int64)
 			if err != nil {
 				log.Error("Unable to get collection: %v", err)
 				return err
@@ -910,7 +922,11 @@ func deletePost(app *App, w http.ResponseWriter, r *http.Request) error {
 				log.Error("No begin: %v", err)
 				return err
 			}
-			res, err = t.Exec("DELETE FROM posts WHERE id = ? AND owner_id = ?", friendlyID, ownerID)
+			res, err = t.Exec(fmt.Sprintf(
+				"DELETE FROM posts WHERE id = %s AND owner_id = %s",
+				app.db.PlaceHolder(1),
+				app.db.PlaceHolder(2),
+			), friendlyID, ownerID)
 		}
 	} else {
 		return impart.HTTPError{http.StatusBadRequest, "No authenticated user or post token given."}
@@ -1343,7 +1359,10 @@ func getRawPost(app *App, friendlyID string) *RawPost {
 	var ownerID sql.NullInt64
 	var created, updated time.Time
 
-	err := app.db.QueryRow("SELECT title, content, text_appearance, language, rtl, created, updated, owner_id FROM posts WHERE id = ?", friendlyID).Scan(&title, &content, &font, &lang, &isRTL, &created, &updated, &ownerID)
+	err := app.db.QueryRow(fmt.Sprintf(
+		"SELECT title, content, text_appearance, language, rtl, created, updated, owner_id FROM posts WHERE id = %s",
+		app.db.PlaceHolder(1),
+	), friendlyID).Scan(&title, &content, &font, &lang, &isRTL, &created, &updated, &ownerID)
 	switch {
 	case err == sql.ErrNoRows:
 		return &RawPost{Content: "", Found: false, Gone: false}
@@ -1378,9 +1397,16 @@ func getRawCollectionPost(app *App, slug, collAlias string) *RawPost {
 	var err error
 
 	if app.cfg.App.SingleUser {
-		err = app.db.QueryRow("SELECT id, title, content, text_appearance, language, rtl, view_count, created, updated, owner_id FROM posts WHERE slug = ? AND collection_id = 1", slug).Scan(&id, &title, &content, &font, &lang, &isRTL, &views, &created, &updated, &ownerID)
+		err = app.db.QueryRow(fmt.Sprintf(
+			"SELECT id, title, content, text_appearance, language, rtl, view_count, created, updated, owner_id FROM posts WHERE slug = %s AND collection_id = 1",
+			app.db.PlaceHolder(1),
+		), slug).Scan(&id, &title, &content, &font, &lang, &isRTL, &views, &created, &updated, &ownerID)
 	} else {
-		err = app.db.QueryRow("SELECT id, title, content, text_appearance, language, rtl, view_count, created, updated, owner_id FROM posts WHERE slug = ? AND collection_id = (SELECT id FROM collections WHERE alias = ?)", slug, collAlias).Scan(&id, &title, &content, &font, &lang, &isRTL, &views, &created, &updated, &ownerID)
+		err = app.db.QueryRow(fmt.Sprintf(
+			"SELECT id, title, content, text_appearance, language, rtl, view_count, created, updated, owner_id FROM posts WHERE slug = %s AND collection_id = (SELECT id FROM collections WHERE alias = %s)",
+			app.db.PlaceHolder(1),
+			app.db.PlaceHolder(2),
+		), slug, collAlias).Scan(&id, &title, &content, &font, &lang, &isRTL, &views, &created, &updated, &ownerID)
 	}
 	switch {
 	case err == sql.ErrNoRows:
@@ -1636,7 +1662,11 @@ Are you sure it was ever here?`,
 		}
 		// Update stats for non-raw post views
 		if !isRaw && r.Method != "HEAD" && !bots.IsBot(r.UserAgent()) {
-			_, err := app.db.Exec("UPDATE posts SET view_count = view_count + 1 WHERE slug = ? AND collection_id = ?", slug, coll.ID)
+			_, err := app.db.Exec(fmt.Sprintf(
+				"UPDATE posts SET view_count = view_count + 1 WHERE slug = %s AND collection_id = %s",
+				app.db.PlaceHolder(1),
+				app.db.PlaceHolder(2),
+			), slug, coll.ID)
 			if err != nil {
 				log.Error("Unable to update posts count: %v", err)
 			}

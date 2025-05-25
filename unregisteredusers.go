@@ -13,6 +13,7 @@ package writefreely
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/writeas/impart"
@@ -103,7 +104,7 @@ func handleUsernameCheck(app *App, w http.ResponseWriter, r *http.Request) error
 		return impart.HTTPError{http.StatusConflict, "Username is already taken."}
 	}
 	var un string
-	err := app.db.QueryRow("SELECT username FROM users WHERE username = ?", finalUsername).Scan(&un)
+	err := app.db.QueryRow(fmt.Sprintf("SELECT username FROM users WHERE username = %s", app.db.PlaceHolder(1)), finalUsername).Scan(&un)
 	switch {
 	case err == sql.ErrNoRows:
 		return impart.WriteSuccess(w, finalUsername, http.StatusOK)
@@ -134,7 +135,7 @@ func getValidUsername(app *App, reqName, prevName string) (string, *impart.HTTPE
 		return "", &impart.HTTPError{http.StatusConflict, "Username is already taken."}
 	}
 	var un string
-	err := app.db.QueryRow("SELECT username FROM users WHERE username = ?", finalUsername).Scan(&un)
+	err := app.db.QueryRow(fmt.Sprintf("SELECT username FROM users WHERE username = %s", app.db.PlaceHolder(1)), finalUsername).Scan(&un)
 	switch {
 	case err == sql.ErrNoRows:
 		return finalUsername, nil

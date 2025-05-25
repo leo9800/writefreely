@@ -278,7 +278,11 @@ func handlePostIDRedirect(app *App, w http.ResponseWriter, r *http.Request) erro
 		return impart.HTTPError{http.StatusFound, app.cfg.App.Host + "/" + postID + ".md"}
 	}
 
-	c, err := app.db.GetCollectionBy("id = ?", fmt.Sprintf("%d", p.CollectionID.Int64))
+	c, err := app.db.GetCollectionBy(
+		fmt.Sprintf("id = %s", app.db.PlaceHolder(1)),
+		fmt.Sprintf("%d", p.CollectionID.Int64),
+	)
+
 	if err != nil {
 		return err
 	}

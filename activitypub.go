@@ -535,7 +535,12 @@ func handleFetchCollectionInbox(app *App, w http.ResponseWriter, r *http.Request
 		}
 
 		// Add like
-		_, err = t.Exec("INSERT INTO remote_likes (post_id, remote_user_id, created) VALUES (?, ?, "+app.db.now()+")", likePostID, remoteUserID)
+		_, err = t.Exec(fmt.Sprintf(
+			"INSERT INTO remote_likes (post_id, remote_user_id, created) VALUES (%s, %s, %s)",
+			app.db.PlaceHolder(1),
+			app.db.PlaceHolder(2),
+			app.db.now(),
+		), likePostID, remoteUserID)
 		if err != nil {
 			if !app.db.isDuplicateKeyErr(err) {
 				t.Rollback()
@@ -574,7 +579,11 @@ func handleFetchCollectionInbox(app *App, w http.ResponseWriter, r *http.Request
 		}
 
 		// Remove like
-		_, err = t.Exec("DELETE FROM remote_likes WHERE post_id = ? AND remote_user_id = ?", unlikePostID, remoteUserID)
+		_, err = t.Exec(fmt.Sprintf(
+			"DELETE FROM remote_likes WHERE post_id = %s AND remote_user_id = %s",
+			app.db.PlaceHolder(1),
+			app.db.PlaceHolder(2),
+		), unlikePostID, remoteUserID)
 		if err != nil {
 			t.Rollback()
 			log.Error("Couldn't delete Like from DB: %v\n", err)
@@ -630,7 +639,13 @@ func handleFetchCollectionInbox(app *App, w http.ResponseWriter, r *http.Request
 			} else {
 				// TODO: use apAddRemoteUser() here, instead!
 				// Add follower locally, since it wasn't found before
-				res, err := t.Exec("INSERT INTO remoteusers (actor_id, inbox, shared_inbox, url) VALUES (?, ?, ?, ?)", fullActor.ID, fullActor.Inbox, fullActor.Endpoints.SharedInbox, fullActor.URL)
+				res, err := t.Exec(fmt.Sprintf(
+					"INSERT INTO remoteusers (actor_id, inbox, shared_inbox, url) VALUES (%s, %s, %s, %s)",
+					app.db.PlaceHolder(1),
+					app.db.PlaceHolder(2),
+					app.db.PlaceHolder(3),
+					app.db.PlaceHolder(4),
+				), fullActor.ID, fullActor.Inbox, fullActor.Endpoints.SharedInbox, fullActor.URL)
 				if err != nil {
 					// if duplicate key, res will be nil and panic on
 					// res.LastInsertId below
@@ -647,7 +662,12 @@ func handleFetchCollectionInbox(app *App, w http.ResponseWriter, r *http.Request
 				}
 
 				// Add in key
-				_, err = t.Exec("INSERT INTO remoteuserkeys (id, remote_user_id, public_key) VALUES (?, ?, ?)", fullActor.PublicKey.ID, followerID, fullActor.PublicKey.PublicKeyPEM)
+				_, err = t.Exec(fmt.Sprintf(
+					"INSERT INTO remoteuserkeys (id, remote_user_id, public_key) VALUES (%s, %s, %s)",
+					app.db.PlaceHolder(1),
+					app.db.PlaceHolder(2),
+					app.db.PlaceHolder(3),
+				), fullActor.PublicKey.ID, followerID, fullActor.PublicKey.PublicKeyPEM)
 				if err != nil {
 					if !app.db.isDuplicateKeyErr(err) {
 						t.Rollback()
@@ -658,7 +678,12 @@ func handleFetchCollectionInbox(app *App, w http.ResponseWriter, r *http.Request
 			}
 
 			// Add follow
-			_, err = t.Exec("INSERT INTO remotefollows (collection_id, remote_user_id, created) VALUES (?, ?, "+app.db.now()+")", c.ID, followerID)
+			_, err = t.Exec(fmt.Sprintf(
+				"INSERT INTO remotefollows (collection_id, remote_user_id, created) VALUES (%s, %s, %s)",
+				app.db.PlaceHolder(1),
+				app.db.PlaceHolder(2),
+				app.db.now(),
+			), c.ID, followerID)
 			if err != nil {
 				if !app.db.isDuplicateKeyErr(err) {
 					t.Rollback()
@@ -675,7 +700,11 @@ func handleFetchCollectionInbox(app *App, w http.ResponseWriter, r *http.Request
 			}
 		} else if isUnfollow {
 			// Remove follower locally
-			_, err = app.db.Exec("DELETE FROM remotefollows WHERE collection_id = ? AND remote_user_id = (SELECT id FROM remoteusers WHERE actor_id = ?)", c.ID, to.String())
+			_, err = app.db.Exec(fmt.Sprintf(
+				"DELETE FROM remotefollows WHERE collection_id = %s AND remote_user_id = (SELECT id FROM remoteusers WHERE actor_id = %s)",
+				app.db.PlaceHolder(1),
+				app.db.PlaceHolder(2),
+			), c.ID, to.String())
 			if err != nil {
 				log.Error("Couldn't remove follower from DB: %v\n", err)
 			}
@@ -939,7 +968,10 @@ func federatePost(app *App, p *PublicPost, collID int64, isUpdate bool) error {
 func getRemoteUser(app *App, actorID string) (*RemoteUser, error) {
 	u := RemoteUser{ActorID: actorID}
 	var urlVal, handle sql.NullString
-	err := app.db.QueryRow("SELECT id, inbox, shared_inbox, url, handle FROM remoteusers WHERE actor_id = ?", actorID).Scan(&u.ID, &u.Inbox, &u.SharedInbox, &urlVal, &handle)
+	err := app.db.QueryRow(fmt.Sprintf(
+		"SELECT id, inbox, shared_inbox, url, handle FROM remoteusers WHERE actor_id = %s",
+		app.db.PlaceHolder(1),
+	), actorID).Scan(&u.ID, &u.Inbox, &u.SharedInbox, &urlVal, &handle)
 	switch {
 	case err == sql.ErrNoRows:
 		return nil, impart.HTTPError{http.StatusNotFound, "No remote user with that ID."}
@@ -959,7 +991,10 @@ func getRemoteUser(app *App, actorID string) (*RemoteUser, error) {
 func getRemoteUserFromHandle(app *App, handle string) (*RemoteUser, error) {
 	u := RemoteUser{Handle: handle}
 	var urlVal sql.NullString
-	err := app.db.QueryRow("SELECT id, actor_id, inbox, shared_inbox, url FROM remoteusers WHERE handle = ?", handle).Scan(&u.ID, &u.ActorID, &u.Inbox, &u.SharedInbox, &urlVal)
+	err := app.db.QueryRow(fmt.Sprintf(
+		"SELECT id, actor_id, inbox, shared_inbox, url FROM remoteusers WHERE handle = %s",
+		app.db.PlaceHolder(1),
+	), handle).Scan(&u.ID, &u.ActorID, &u.Inbox, &u.SharedInbox, &urlVal)
 	switch {
 	case err == sql.ErrNoRows:
 		return nil, ErrRemoteUserNotFound
@@ -1039,7 +1074,11 @@ func GetProfileURLFromHandle(app *App, handle string) (string, error) {
 		_, errRemoteUser := getRemoteUser(app, actorIRI)
 		// if it exists then we need to update the handle
 		if errRemoteUser == nil {
-			_, err := app.db.Exec("UPDATE remoteusers SET handle = ? WHERE actor_id = ?", handle, actorIRI)
+			_, err := app.db.Exec(fmt.Sprintf(
+				"UPDATE remoteusers SET handle = %s WHERE actor_id = %s",
+				app.db.PlaceHolder(1),
+				app.db.PlaceHolder(2),
+			), handle, actorIRI)
 			if err != nil {
 				log.Error("Couldn't update handle '%s' for user %s", handle, actorIRI)
 			}
@@ -1053,7 +1092,14 @@ func GetProfileURLFromHandle(app *App, handle string) (string, error) {
 			if debugging {
 				log.Info("Got remote actor: %s %s %s %s %s", actorIRI, remoteActor.GetInbox(), remoteActor.GetSharedInbox(), remoteActor.URL(), handle)
 			}
-			_, err = app.db.Exec("INSERT INTO remoteusers (actor_id, inbox, shared_inbox, url, handle) VALUES(?, ?, ?, ?, ?)", actorIRI, remoteActor.GetInbox(), remoteActor.GetSharedInbox(), remoteActor.URL(), handle)
+			_, err = app.db.Exec(fmt.Sprintf(
+				"INSERT INTO remoteusers (actor_id, inbox, shared_inbox, url, handle) VALUES(%s, %s, %s, %s, %s)",
+				app.db.PlaceHolder(1),
+				app.db.PlaceHolder(2),
+				app.db.PlaceHolder(3),
+				app.db.PlaceHolder(4),
+				app.db.PlaceHolder(5),
+			), actorIRI, remoteActor.GetInbox(), remoteActor.GetSharedInbox(), remoteActor.URL(), handle)
 			if err != nil {
 				log.Error("Couldn't insert remote user: %v", err)
 				return "", err
@@ -1066,7 +1112,11 @@ func GetProfileURLFromHandle(app *App, handle string) (string, error) {
 		if err != nil {
 			log.Error("Couldn't fetch remote actor: %v", err)
 		} else {
-			_, err := app.db.Exec("UPDATE remoteusers SET url = ? WHERE actor_id = ?", newRemoteActor.URL(), remoteUser.ActorID)
+			_, err := app.db.Exec(fmt.Sprintf(
+				"UPDATE remoteusers SET url = %s WHERE actor_id = %s",
+				app.db.PlaceHolder(1),
+				app.db.PlaceHolder(2),
+			), newRemoteActor.URL(), remoteUser.ActorID)
 			if err != nil {
 				log.Error("Couldn't update handle '%s' for user %s", handle, actorIRI)
 			} else {

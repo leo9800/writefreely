@@ -48,8 +48,13 @@ const (
 	mySQLErrTooManyConns = 1040
 	mySQLErrMaxUserConns = 1203
 
-	driverMySQL  = "mysql"
-	driverSQLite = "sqlite3"
+	postgresErrDuplicateKey = "23505"
+	postgresErrTooManyConns = "53300"
+	postgresErrMaxUserConns = "53400"
+
+	driverMySQL    = "mysql"
+	driverPostgres = "postgres"
+	driverSQLite   = "sqlite3"
 )
 
 var (
@@ -156,41 +161,76 @@ type datastore struct {
 var _ writestore = &datastore{}
 
 func (db *datastore) now() string {
-	if db.driverName == driverSQLite {
+	switch db.driverName {
+	case driverSQLite:
 		return "strftime('%Y-%m-%d %H:%M:%S','now')"
+	case driverMySQL:
+		return "NOW()"
+	case driverPostgres:
+		return "NOW()"
 	}
-	return "NOW()"
+
+	return "" // placeholder
 }
 
 func (db *datastore) clip(field string, l int) string {
-	if db.driverName == driverSQLite {
+	switch db.driverName {
+	case driverSQLite:
 		return fmt.Sprintf("SUBSTR(%s, 0, %d)", field, l)
+	case driverMySQL:
+		return fmt.Sprintf("LEFT(%s, %d)", field, l)
+	case driverPostgres:
+		return fmt.Sprintf("LEFT(%s, %d)", field, l)
 	}
-	return fmt.Sprintf("LEFT(%s, %d)", field, l)
+
+	return "" // placeholder
 }
 
 func (db *datastore) upsert(indexedCols ...string) string {
-	if db.driverName == driverSQLite {
+	cc := strings.Join(indexedCols, ", ")
+
+	switch db.driverName {
+	case driverSQLite:
 		// NOTE: SQLite UPSERT syntax only works in v3.24.0 (2018-06-04) or later
 		// Leaving this for whenever we can upgrade and include it in our binary
-		cc := strings.Join(indexedCols, ", ")
+		return "ON CONFLICT(" + cc + ") DO UPDATE SET"
+	case driverMySQL:
+		return "ON DUPLICATE KEY UPDATE"
+	case driverPostgres:
 		return "ON CONFLICT(" + cc + ") DO UPDATE SET"
 	}
-	return "ON DUPLICATE KEY UPDATE"
+
+	return "" // placeholder
 }
 
 func (db *datastore) dateAdd(l int, unit string) string {
-	if db.driverName == driverSQLite {
+	switch db.driverName {
+	case driverSQLite:
+		// NOTE: SQLite UPSERT syntax only works in v3.24.0 (2018-06-04) or later
+		// Leaving this for whenever we can upgrade and include it in our binary
 		return fmt.Sprintf("DATETIME('now', '%d %s')", l, unit)
+	case driverMySQL:
+		return fmt.Sprintf("DATE_ADD(NOW(), INTERVAL %d %s)", l, unit)
+	case driverPostgres:
+		return fmt.Sprintf("DATE_ADD(NOW(), %d %s)", l, unit)
 	}
-	return fmt.Sprintf("DATE_ADD(NOW(), INTERVAL %d %s)", l, unit)
+
+	return "" // placeholder
 }
 
 func (db *datastore) dateSub(l int, unit string) string {
-	if db.driverName == driverSQLite {
+	switch db.driverName {
+	case driverSQLite:
+		// NOTE: SQLite UPSERT syntax only works in v3.24.0 (2018-06-04) or later
+		// Leaving this for whenever we can upgrade and include it in our binary
 		return fmt.Sprintf("DATETIME('now', '-%d %s')", l, unit)
+	case driverMySQL:
+		return fmt.Sprintf("DATE_SUB(NOW(), INTERVAL %d %s)", l, unit)
+	case driverPostgres:
+		return fmt.Sprintf("DATE_SUBTRACT(NOW(), %d %s)", l, unit)
 	}
-	return fmt.Sprintf("DATE_SUB(NOW(), INTERVAL %d %s)", l, unit)
+
+	return "" // placeholder
 }
 
 // CreateUser creates a new user in the database from the given User, UPDATING it in the process with the user's ID.
@@ -3005,11 +3045,15 @@ func (db *datastore) GetOauthAccounts(ctx context.Context, userID int64) ([]oaut
 func (db *datastore) DatabaseInitialized() bool {
 	var dummy string
 	var err error
-	if db.driverName == driverSQLite {
+	switch db.driverName {
+	case driverSQLite:
 		err = db.QueryRow("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'").Scan(&dummy)
-	} else {
+	case driverMySQL:
 		err = db.QueryRow("SHOW TABLES LIKE 'users'").Scan(&dummy)
+	case driverPostgres:
+		err = db.QueryRow("SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename = 'users'").Scan(&dummy)
 	}
+
 	switch {
 	case err == sql.ErrNoRows:
 		return false
@@ -3327,4 +3371,17 @@ func (db *datastore) GetJobsToRun(action string) ([]*PostJob, error) {
 		jobs = append(jobs, j)
 	}
 	return jobs, nil
+}
+
+func (db *datastore) PlaceHolder(n int) string {
+	switch db.driverName {
+	case driverSQLite:
+		return "?"
+	case driverMySQL:
+		return "?"
+	case driverPostgres:
+		return fmt.Sprintf("$%d", n)
+	}
+
+	return ""  // placeholder
 }

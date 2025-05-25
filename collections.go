@@ -995,7 +995,7 @@ func handleViewCollection(app *App, w http.ResponseWriter, r *http.Request) erro
 			return
 		}
 
-		_, err := app.db.Exec("UPDATE collections SET view_count = view_count + 1 WHERE id = ?", coll.ID)
+		_, err := app.db.Exec(fmt.Sprintf("UPDATE collections SET view_count = view_count + 1 WHERE id = %s", app.db.PlaceHolder(1)), coll.ID)
 		if err != nil {
 			log.Error("Unable to update collections count: %v", err)
 		}
@@ -1382,7 +1382,10 @@ func handleWebCollectionUnlock(app *App, w http.ResponseWriter, r *http.Request)
 	}
 
 	var collHashedPass []byte
-	err := app.db.QueryRow("SELECT password FROM collectionpasswords INNER JOIN collections ON id = collection_id WHERE alias = ?", readReq.Alias).Scan(&collHashedPass)
+	err := app.db.QueryRow(fmt.Sprintf(
+		"SELECT password FROM collectionpasswords INNER JOIN collections ON id = collection_id WHERE alias = %s",
+		app.db.PlaceHolder(1),
+	), readReq.Alias).Scan(&collHashedPass)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			log.Error("No collectionpassword found when trying to read collection %s", readReq.Alias)
